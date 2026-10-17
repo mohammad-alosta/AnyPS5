@@ -3,11 +3,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <new>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include "prx/libc/include/General.hpp"
@@ -248,6 +251,32 @@ int APS5_VABI sceNgs2SystemRender(uintptr_t system_handle, const Ngs2RenderBuffe
 int APS5_VABI sceNgs2SystemResetOption(Ngs2SystemOption* option) {
     if (option == nullptr) APS5_INVALID_ARG_EX;
     *option = DefaultSystemOption();
+    return SCE_NGS2_OK;
+}
+
+namespace {
+
+using Ngs2ReportHandler = void (APS5_VABI *)(const void* report_data, std::uintptr_t user_data);
+
+std::mutex g_report_mutex;
+std::map<Ngs2Handle, std::tuple<std::uint32_t, Ngs2ReportHandler, std::uintptr_t>> g_report_handlers;
+Ngs2Handle g_next_report_handle = 1;
+
+}
+
+int APS5_VABI sceNgs2ReportRegisterHandler(std::uint32_t report_type, Ngs2ReportHandler handler, std::uintptr_t user_data, Ngs2Handle* out_handle) {
+    if (out_handle == nullptr) return SCE_NGS2_ERROR_INVALID_OUT_ADDRESS;
+    if (handler == nullptr) throw std::runtime_error("sceNgs2ReportRegisterHandler: null handler");
+    std::lock_guard lock(g_report_mutex);
+    Ngs2Handle handle = g_next_report_handle++;
+    g_report_handlers.emplace(handle, std::make_tuple(report_type, handler, user_data));
+    *out_handle = handle;
+    return SCE_NGS2_OK;
+}
+
+int APS5_VABI sceNgs2ReportUnregisterHandler(Ngs2Handle report_handle) {
+    std::lock_guard lock(g_report_mutex);
+    if (g_report_handlers.erase(report_handle) == 0) throw std::runtime_error("sceNgs2ReportUnregisterHandler: unknown report handle");
     return SCE_NGS2_OK;
 }
 
